@@ -55,6 +55,9 @@ let boolToInt b = if b then 1 else 0
 
 let intToBool i = i != 0 
 
+let fun1 op = fun x1 x2 -> boolToInt(op x1 x2)
+let fun2 op = fun x1 x2 -> boolToInt (op (intToBool x1) (intToBool x2))
+
 let evalOperation op =
    match op with
 
@@ -66,16 +69,16 @@ let evalOperation op =
    | "%"  -> ( mod )
 
    (* Согласно 01.pdf результат следующих операций конвертируется в int *)
-   | "==" -> boolToInt (x1 = x2)
-   | "!=" -> boolToInt (x1 != x2)
-   | "<=" -> boolToInt (x1 <= x2)
-   | "<"  -> boolToInt (x1 < x2)
-   | ">=" -> boolToInt (x1 >= x2)
-   | ">"  -> boolToInt (x1 > x2)
+   | "==" -> fun1 ( == )
+   | "!=" -> fun1 ( != )
+   | "<=" -> fun1 ( <= )
+   | "<"  -> fun1 ( <  )
+   | ">=" -> fun1 ( >= )
+   | ">"  -> fun1 ( >  )
 
    (* Согласно 01.pdf аргументы следующих операций конвертируется в bool *)
-   | "&&" -> boolToInt (intToBool x1 && intToBool x2)
-   | "!!" -> boolToInt (intToBool x1 || intToBool x2)
+   | "&&" -> fun2 ( && )
+   | "!!" -> fun2 ( || )
    
    (* Неизвестный оператор *)
    | _    -> failwith (Printf.sprintf "Unknown operator");;
