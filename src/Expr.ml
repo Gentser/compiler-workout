@@ -84,4 +84,4 @@ let rec eval state exp =
    match exp with
    | Const v -> v
    | Var x -> state x
-   | binop op x1 x2 -> evalOperation op (eval state x1) (eval state x2) 
+   | Binop (op, x1, x2) -> evalOperation op (eval state x1) (eval state x2) 
