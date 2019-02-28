@@ -107,7 +107,7 @@ module Stmt =
         (* <s, i, o> --> <s[ x<-[|e|]s ], i, o> *)
         | Assign (var_name, expression) -> (Expr.update var_name (Expr.eval state expression) state, input, output)
         (* <s, z::i, o> --> <s[x<-z], i, o> *)
-        | Read var_name -> (match input with  (* check for existing of tail *)
+        | Read var_name -> (match input with  (* check for existing of tail - no error check*)
           | head::tail -> (Expr.update var_name head state, tail, output))
         (* <s, i, o> --> <s, i, o @ [ [|e|]s ]> *)
         | Write expression -> (state, input, output @ [Expr.eval state expression])
