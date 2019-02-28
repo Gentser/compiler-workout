@@ -9,6 +9,7 @@ module Expr =
 
     (* The type for expressions. Note, in regular OCaml there is no "@type..."
        notation, it came from GT.
+
     *)
     @type t =
     (* integer constant *) | Const of int
@@ -30,6 +31,7 @@ module Expr =
     let empty = fun x -> failwith (Printf.sprintf "Undefined variable %s" x)
 
     (* Update: non-destructively "modifies" the state s by binding the variable x
+
       to value v and returns the new state.
     *)
     let update x v s = fun y -> if x = y then v else s y
@@ -37,7 +39,7 @@ module Expr =
     (* Expression evaluator
 
           val eval : state -> t -> int
-
+          
        Takes a state and an expression, and returns the value of the expression in
        the given state.
     *)
@@ -95,12 +97,14 @@ module Stmt =
     (* The type of configuration: a state, an input stream, an output stream *)
     type config = Expr.state * int list * int list
 
+
     (* Statement evaluator
 
           val eval : config -> t -> config
 
        Takes a configuration and a statement, and returns another configuration
     *)
+    
     let rec eval config statement =
       let (state, input, output) = config in
       match statement with
@@ -114,12 +118,12 @@ module Stmt =
         (* C1 -S1-> C' -S2-> C2*)
         | Seq (state1, state2) -> eval (eval config state1) state2;;
 
-  end
 
 (* The top-level definitions *)
 
 (* The top-level syntax category is statement *)
 type t = Stmt.t
+
 
 (* Top-level evaluator
 
