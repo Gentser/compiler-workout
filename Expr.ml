@@ -36,12 +36,12 @@ let update x v s = fun y -> if x = y then v else s y
 let s = update "x" 1 @@ update "y" 2 @@ update "z" 3 @@ update "t" 4 empty
 
 (* Some testing; comment this definition out when submitting the solution. *)
-(*let _ =
+let _ =
   List.iter
     (fun x ->
        try  Printf.printf "%s=%d\n" x @@ s x
        with Failure s -> Printf.printf "%s\n" s
-    ) ["x"; "a"; "y"; "z"; "t"; "b"]*)
+    ) ["x"; "a"; "y"; "z"; "t"; "b"]
 
 (* Expression evaluator
 
@@ -50,41 +50,5 @@ let s = update "x" 1 @@ update "y" 2 @@ update "z" 3 @@ update "t" 4 empty
    Takes a state and an expression, and returns the value of the expression in 
    the given state.
 *)
-
-let boolToInt b = if b then 1 else 0 
-
-let intToBool i = i != 0 
-
-let fun1 op = fun x1 x2 -> boolToInt(op x1 x2)
-let fun2 op = fun x1 x2 -> boolToInt (op (intToBool x1) (intToBool x2))
-
-let evalOperation op =
-   match op with
-
-   (* данные операторы определены в Embedding.ml *)
-   | "+"  -> ( + )
-   | "-"  -> ( - )
-   | "*"  -> ( * )
-   | "/"  -> ( / )
-   | "%"  -> ( mod )
-
-   (* Согласно 01.pdf результат следующих операций конвертируется в int *)
-   | "==" -> fun1 ( == )
-   | "!=" -> fun1 ( != )
-   | "<=" -> fun1 ( <= )
-   | "<"  -> fun1 ( <  )
-   | ">=" -> fun1 ( >= )
-   | ">"  -> fun1 ( >  )
-
-   (* Согласно 01.pdf аргументы следующих операций конвертируется в bool *)
-   | "&&" -> fun2 ( && )
-   | "!!" -> fun2 ( || )
-   
-   (* Неизвестный оператор *)
-   | _    -> failwith (Printf.sprintf "Unknown operator");;
+let eval = failwith "Not implemented yet"
                     
-let rec eval state exp = 
-   match exp with
-   | Const v -> v
-   | Var x -> state x
-   | Binop (op, x1, x2) -> evalOperation op (eval state x1) (eval state x2) 
