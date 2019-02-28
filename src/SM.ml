@@ -28,6 +28,7 @@ type config = int list * Syntax.Stmt.config
  	  let (state, input, output) = c in
  	    match instruct with
         | BINOP op -> (match stack with
+                        (* y::x - because order of arguments on the stack is inverted *)
                         | y::x::rest -> [Syntax.Expr.evalOperation op x y] @ rest, c
                       )
         | CONST x  -> [x] @ stack, c
@@ -40,7 +41,7 @@ type config = int list * Syntax.Stmt.config
         | LD var   -> [state var] @ stack, c
  	      | ST var   -> (match stack with
                         | x::rest -> rest, (Syntax.Expr.update var x state, input, output)
-                      );;
+                      )
 
    let eval config prog = List.fold_left process_instruct config prog;;
 
@@ -49,8 +50,9 @@ type config = int list * Syntax.Stmt.config
      val run : int list -> prg -> int list
 
    Takes an input stream, a program, and returns an output stream this program calculates
+   let run i p = let (_, (_, _, o)) = eval ([], (Syntax.Expr.empty, i, [])) p in o
 *)
-let run i p = let (_, (_, _, o)) = eval ([], (Syntax.Expr.empty, i, [])) p in o
+
 
 (* Stack machine compiler
 
@@ -60,4 +62,14 @@ let run i p = let (_, (_, _, o)) = eval ([], (Syntax.Expr.empty, i, [])) p in o
    stack machine
  *)
 
-let compile _ = failwith "Not yet implemented"
+(* Expression needs in their own compiler *)
+ let rec compileE e = match e with
+     | Syntax.Expr.Const n -> [CONST n]
+     | Syntax.Expr.Var x -> [LD x]
+     | Syntax.Expr.Binop (operator, left, right) -> (compileE left) @ (compileE right) @ [BINOP operator];;
+
+ let rec compile program = match program with
+     | Syntax.Stmt.Assign (x, e) -> (compileE e) @ [ST x]
+     | Syntax.Stmt.Read x -> [READ; ST x]
+     | Syntax.Stmt.Write e -> (compileE e) @ [WRITE]
+     | Syntax.Stmt.Seq (a, b) -> (compile a) @ (compile b);;
