@@ -61,4 +61,14 @@ let run i p = let (_, (_, _, o)) = eval ([], (Syntax.Expr.empty, i, [])) p in o
    stack machine
  *)
 
-let compile _ = failwith "Not yet implemented"
+ (* Expression needs in their own compiler *)
+  let rec compileE e = match e with
+      | Syntax.Expr.Const n -> [CONST n]
+      | Syntax.Expr.Var x -> [LD x]
+      | Syntax.Expr.Binop (operator, left, right) -> (compileE left) @ (compileE right) @ [BINOP operator];;
+
+  let rec compile program = match program with
+      | Syntax.Stmt.Assign (x, e) -> (compileE e) @ [ST x]
+      | Syntax.Stmt.Read x -> [READ; ST x]
+      | Syntax.Stmt.Write e -> (compileE e) @ [WRITE]
+      | Syntax.Stmt.Seq (a, b) -> (compile a) @ (compile b);;
