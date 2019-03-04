@@ -101,7 +101,18 @@ module Stmt =
 
        Takes a configuration and a statement, and returns another configuration
     *)
-    let eval _ = failwith "Not implemented yet"
+    let rec eval config statement =
+      let (state, input, output) = config in
+      match statement with
+        (* <s, i, o> --> <s[ x<-[|e|]s ], i, o> *)
+        | Assign (var_name, expression) -> (Expr.update var_name (Expr.eval state expression) state, input, output)
+        (* <s, z::i, o> --> <s[x<-z], i, o> *)
+        | Read var_name -> (match input with  (* check for existing of tail - no error check*)
+          | head::tail -> (Expr.update var_name head state, tail, output))
+        (* <s, i, o> --> <s, i, o @ [ [|e|]s ]> *)
+        | Write expression -> (state, input, output @ [Expr.eval state expression])
+        (* C1 -S1-> C' -S2-> C2*)
+        | Seq (state1, state2) -> eval (eval config state1) state2;;
 
   end
 
