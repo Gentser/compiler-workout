@@ -88,8 +88,25 @@ module Expr =
          DECIMAL --- a decimal constant [0-9]+ as a string
 
     *)
+    (* Auxiliary function for binary operation performance - instead of function repeat bellow *)
+    let parseBinOp op = ostap(- $(op)), (fun x y -> Binop (op, x, y))
     ostap (
-      parse: empty {failwith "Not implemented yet"}
+        expr:
+      	    !(Ostap.Util.expr
+      		    (fun x -> x)  (* identity function *)
+      		    (Array.map (fun (asc, ops) -> asc, List.map parseBinOp ops)
+                    [|
+                        `Lefta, ["!!"];
+                        `Lefta, ["&&"];
+                        `Nona , ["=="; "!="];
+                        `Nona , ["<="; "<"; ">="; ">"];
+                        `Lefta, ["+"; "-"];
+                        `Lefta, ["*"; "/"; "%"];
+                    |]
+                )
+      		    primary
+      		);
+      	primary: x:IDENT {Var x} | c:DECIMAL {Const c} | -"(" expr -")"  (* simpiest expression - {var, const, (var), (const)}*)
     )
 
   end
