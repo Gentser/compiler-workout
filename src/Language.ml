@@ -146,7 +146,14 @@ module Stmt =
 
     (* Statement parser *)
     ostap (
-      parse: empty {failwith "Not implemented yet"}
+      unitStmt:
+  			  "read" "(" x:IDENT ")" {Read x}
+  			| "write" "(" e:!(Expr.expr) ")" {Write e}
+        | x:IDENT ":=" e:!(Expr.expr) {Assign(x, e)};
+
+      parse:
+          s:unitStmt ";" rest:parse {Seq(s, rest)}
+        | unitStmt
     )
 
   end
