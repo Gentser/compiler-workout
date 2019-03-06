@@ -30,7 +30,7 @@ type config = int list * Stmt.config
       match instruct with
         | BINOP op -> (match stack with
                         (* y::x - because order of arguments on the stack is inverted *)
-                        | y::x::rest -> [Syntax.Expr.evalOperation op x y] @ rest, c
+                        | y::x::rest -> [Language.Expr.evalOperation op x y] @ rest, c
                       )
         | CONST x  -> [x] @ stack, c
         | READ     -> (match input with
@@ -41,7 +41,7 @@ type config = int list * Stmt.config
                       )
         | LD var   -> [state var] @ stack, c
         | ST var   -> (match stack with
-                        | x::rest -> rest, (Syntax.Expr.update var x state, input, output)
+                        | x::rest -> rest, (Language.Expr.update var x state, input, output)
                       )
 
    let eval config prog = List.fold_left process_instruct config prog;;
@@ -64,12 +64,12 @@ let run p i = let (_, (_, _, o)) = eval ([], (Language.Expr.empty, i, [])) p in 
 
  (* Expression needs in their own compiler *)
   let rec compileE e = match e with
-      | Syntax.Expr.Const n -> [CONST n]
-      | Syntax.Expr.Var x -> [LD x]
-      | Syntax.Expr.Binop (operator, left, right) -> (compileE left) @ (compileE right) @ [BINOP operator];;
+      | Language.Expr.Const n -> [CONST n]
+      | Language.Expr.Var x -> [LD x]
+      | Language.Expr.Binop (operator, left, right) -> (compileE left) @ (compileE right) @ [BINOP operator];;
 
   let rec compile program = match program with
-      | Syntax.Stmt.Assign (x, e) -> (compileE e) @ [ST x]
-      | Syntax.Stmt.Read x -> [READ; ST x]
-      | Syntax.Stmt.Write e -> (compileE e) @ [WRITE]
-      | Syntax.Stmt.Seq (a, b) -> (compile a) @ (compile b);;
+      | Language.Stmt.Assign (x, e) -> (compileE e) @ [ST x]
+      | Language.Stmt.Read x -> [READ; ST x]
+      | Language.Stmt.Write e -> (compileE e) @ [WRITE]
+      | Language.Stmt.Seq (a, b) -> (compile a) @ (compile b);;
