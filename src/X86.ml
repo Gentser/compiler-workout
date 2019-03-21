@@ -109,6 +109,12 @@ let rec compile env code =
 				let s, env = env#allocate in
 				env, [Call "Lread"; Mov (eax, s)]
 
+      | LABEL l     -> env, [Label l]
+      | JMP l       -> env, [Jmp l]
+      | CJMP (b, l) ->
+         let s, env = env#pop in
+         env, [Binop ("cmp", L 0, s); CJmp (b, l)]
+
 			| BINOP op ->
 				let right, left, env = env#pop2 in
   			let result, env = env#allocate in
