@@ -29,49 +29,34 @@ type config = int list * Stmt.config
    environment is used to locate a label to jump to (via method env#labeled <label_name>)
 *)
 
-(* Hard expression for left-folding - desicion to make rec function *)
-let rec eval env ((stack, ((state, input, output) as c)) as config) = function
-| [] -> config
-| instruction :: rest_instr ->
-     match instruction with
-     | BINOP op ->
-        begin
-          match stack with
-          | y::x::rest -> (* y::x - because order of arguments on the stack is inverted *)
-             eval env ((Language.Expr.evalOperation op x y) :: rest, c) rest_instr
-          | _ -> failwith "SM interpreter error: BINOP"
-        end
-     | CONST v -> eval env (v::stack, c) rest_instr
-     | READ ->
-        begin
-          match input with
-          | x::rest -> eval env (x::stack, (state, rest, output)) rest_instr
-          | _ -> failwith "SM interpreter error: READ"
-        end
-     | WRITE ->
-        begin
-          match stack with
-          | x::rest -> eval env (rest, (state, input, output @ [x])) rest_instr
-          | _ -> failwith "SM interpreter error: WRITE"
-        end
-     | LD x -> eval env ((state x) :: stack, c) rest_instr
-     | ST x ->
-        begin
-          match stack with
-          | z::rest -> eval env (rest, ((Language.Expr.update x z state), input, output)) rest_instr
-          | _ -> failwith "SM interpreter error: ST"
-        end
-     | LABEL l -> eval env config rest_instr
-     | JMP l -> eval env config (env#labeled l)
-     | CJMP (b, l) ->
-        begin
-          match stack with
-          | x::rest ->
-              if (x = 0 && b = "z" || x != 0 && b = "nz")
-              then eval env (rest, c) (env#labeled l)
-              else eval env (rest, c) rest_instr
-          | _ -> failwith "SM interpreter error: stack is empty"
-        end
+let hd_tl = Language.Stmt.headToTail
+let cjmp_sat znz value = if (znz = "nz" && value <> 0) || (znz = "z" && value == 0) then true else false
+
+let rec eval env (stack, (state, input, output)) p = if 1 == 0 then (stack, (state, input, output)) else
+    let eval_expr expr = match expr with
+        | BINOP op -> (match stack with
+            | (y::x::xs) -> (Language.Expr.evalOperation op x y :: xs, (state, input, output))
+            | _ -> failwith "SM interpreter error: BINOP")
+        | CONST x -> (x :: stack, (state, input, output))
+        | READ -> let (head, tail) = hd_tl input "SM interpreter error: READ" in
+                      (head :: stack, (state, tail, output))
+        | WRITE -> let (head, tail) = hd_tl stack "SM interpreter error: WRITE" in
+                       (tail, (state, input, output @ [head]))
+        | LD name -> (state name :: stack, (state, input, output))
+        | ST name -> let (head, tail) = hd_tl stack "SM interpreter error: ST" in
+                     let new_state = Language.Expr.update name head state in
+                     (tail, (new_state, input, output))
+        | LABEL _ -> (stack, (state, input, output))
+        | _ -> failwith "SM interpreter error: Unexpected statement"
+    in match p with
+        | x::xs -> (match x with
+            | JMP label -> eval env (stack, (state, input, output)) (env#labeled label)
+            | CJMP (znz, label) -> let (head, tail) = hd_tl stack "SM interpreter error: CJMP" in
+                if cjmp_sat znz head
+                then eval env (tail, (state, input, output)) (env#labeled label)
+                else eval env (tail, (state, input, output)) xs
+            | _ -> eval env (eval_expr x) xs)
+        | _ -> (stack, (state, input, output))
 
 (* Top-level evaluation
 
@@ -87,6 +72,10 @@ let run p i =
   | _ :: tl         -> make_map m tl
   in
   let m = make_map M.empty p in
+  if (1 == 0) then
+  List.fold_left (fun () pr ->
+                  Printf.printf "%s\n" (GT.transform(insn) (new @insn[show]) () pr)) () p
+  else ();
   let (_, (_, _, o)) = eval (object method labeled l = M.find l m end) ([], (Expr.empty, i, [])) p in o
 
 (* Stack machine compiler
@@ -96,40 +85,57 @@ let run p i =
    Takes a program in the source language and returns an equivalent program for the
    stack machine
 *)
-let rec compile =
 
-  let rec expr = function
-  | Language.Expr.Var   x          -> [LD x]
-  | Language.Expr.Const n          -> [CONST n]
-  | Language.Expr.Binop (op, x, y) -> expr x @ expr y @ [BINOP op]
-  in
+(* Label generator *)
+class labels =
+  object (self)
+    val label_n = 0
+    method get_label = {< label_n = label_n + 1 >}, self#generate_label
+    method generate_label = "label" ^ string_of_int label_n
+end
 
-  let label_generator =
-    object
-      val mutable counter = 0
-      method generate =
-        counter <- counter + 1;
-        "l_" ^ string_of_int counter
-    end
-  in
+(* Primitive compilation *)
+let rec compile_expr expr = match expr with
+  | Language.Expr.Var   x               -> [LD x]
+  | Language.Expr.Const n               -> [CONST n]
+  | Language.Expr.Binop (op, x, y)      -> compile_expr x @ compile_expr y @ [BINOP op]
 
-  function
-  | Language.Stmt.Seq (s1, s2)   -> compile s1 @ compile s2
-  | Language.Stmt.Read x         -> [READ; ST x]
-  | Language.Stmt.Write e        -> expr e @ [WRITE]
-  | Language.Stmt.Assign (x, e)  -> expr e @ [ST x]
+(* Statement compilation *)
+let rec compile_impl lb p after_label = match p with
+    | Language.Stmt.Seq (e1, e2)        -> let (lb, label) = lb#get_label in
+                                           let (prg1, used1, lb) = compile_impl lb e1 label in
+                                           let (prg2, used2, lb) = compile_impl lb e2 after_label in
+                                           (prg1 @ (if used1 then [LABEL label] else []) @ prg2), used2, lb
+    | Language.Stmt.Read name           -> ([READ; ST name]), false, lb
+    | Language.Stmt.Write expr          -> (compile_expr expr @ [WRITE]), false, lb
+    | Language.Stmt.Assign (name, expr) -> (compile_expr expr @ [ST name]), false, lb
 
-  | Language.Stmt.Skip           -> []
-  | Language.Stmt.If (e, s1, s2) ->
-     let l_else = label_generator#generate in
-     let l_fi = label_generator#generate in
-     (expr e) @ [CJMP ("z", l_else)] @ (compile s1) @ [JMP l_fi] @ [LABEL l_else] @ (compile s2) @ [LABEL l_fi]
+    | Language.Stmt.Skip                -> [], false, lb
+    | Language.Stmt.If (cond, thn, els) ->
+        let lb, else_label = lb#get_label in
+        let condition = compile_expr cond in
+        let (thn_body, used1, lb) = compile_impl lb thn after_label in
+        let (els_body, used2, lb) = compile_impl lb els after_label in
+        condition @ [CJMP ("z", else_label)] @
+        thn_body @ (if used1 then [] else [JMP after_label]) @ [LABEL else_label] @
+        els_body @ (if used2 then [] else [JMP after_label])
+        , true, lb
 
-  | Language.Stmt.While (e, s) ->
-     let l_expr = label_generator#generate in
-     let l_od = label_generator#generate in
-     [LABEL l_expr] @ (expr e) @ [CJMP ("z", l_od)] @ (compile s) @ [JMP l_expr] @ [LABEL l_od]
+    | Language.Stmt.While (cond, body)  ->
+        let lb, before_label = lb#get_label in
+        let lb, condition_label = lb#get_label in
+        let do_body, _, lb = compile_impl lb body condition_label in
+        let condition = compile_expr cond in
+        [JMP condition_label; LABEL before_label] @
+        do_body @ [LABEL condition_label] @ condition @ [CJMP ("nz", before_label)]
+        , false, lb
 
-  | Language.Stmt.RepeatUntil (e, s) ->
-     let l_repeat = label_generator#generate in
-     [LABEL l_repeat] @ (compile s) @ (expr e) @ [CJMP ("z", l_repeat)]
+    | Language.Stmt.RepeatUntil (body, cond) ->
+        let (prg, _, lb) = compile_impl lb (Language.Stmt.While (
+                                            Language.Stmt.reverseCondition cond, body)) after_label in
+        List.tl (prg), false, lb
+
+(* SM compiler itself *)
+let rec compile p = let lb, label = (new labels)#get_label in
+                    let prg, used, _ = compile_impl lb p label in
+                    prg @ (if used then [LABEL label] else [])

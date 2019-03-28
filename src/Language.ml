@@ -90,7 +90,7 @@ module Expr =
 
     *)
     (* Auxiliary function for binary operation performance - instead of function repeat bellow *)
-    let parseBinOp op = ostap(- $(op)), (fun x y -> Binop (op, x, y))
+    let parseBinOp op = ostap( $(op) ), (fun x y -> Binop (op, x, y))
     ostap (
         parse: expr;
         expr:
@@ -108,7 +108,7 @@ module Expr =
                 )
       		    primary
       		);
-      	primary: x:IDENT {Var x} | c:DECIMAL {Const c} | -"(" expr -")"  (* simpiest expression - {var, const, (var), (const)}*)
+      	primary: c:DECIMAL {Const c} | x:IDENT {Var x} | -"(" expr -")"  (* simpiest expression - {var, const, (var), (const)}*)
     )
 
   end
@@ -126,7 +126,7 @@ module Stmt =
     (* empty statement                  *) | Skip
     (* conditional                      *) | If     of Expr.t * t * t
     (* loop with a pre-condition        *) | While  of Expr.t * t
-    (* loop with a post-condition       *) | RepeatUntil of Expr.t * t with show
+    (* loop with a post-condition       *) | RepeatUntil of t * Expr.t with show
 
     (* The type of configuration: a state, an input stream, an output stream *)
     type config = Expr.state * int list * int list
@@ -137,58 +137,71 @@ module Stmt =
 
        Takes a configuration and a statement, and returns another configuration
     *)
-    let rec eval config statement =
-      let (state, input, output) = config in
-      match statement with
+
+    let reverseCondition c = Expr.Binop ("==", c, Expr.Const 0)
+    let headToTail t m = match t with
+        | head::tail -> (head, tail)
+        | _ -> failwith(m)
+
+    let rec eval (s, i, o) p = match p with
         (* <s, i, o> --> <s[ x<-[|e|]s ], i, o> *)
-        | Assign (var_name, expression) -> (Expr.update var_name (Expr.eval state expression) state, input, output)
+        | Assign (name, e)          -> (Expr.update name (Expr.eval s e) s, i, o)
         (* <s, z::i, o> --> <s[x<-z], i, o> *)
-        | Read var_name -> (match input with  (* check for existing of tail - no error check*)
-          | head::tail -> (Expr.update var_name head state, tail, output))
+        | Read name                 -> let (head, tail) = headToTail i "Unexpected end of input (no info)" in
+                                       (Expr.update name head s, tail, o)
         (* <s, i, o> --> <s, i, o @ [ [|e|]s ]> *)
-        | Write expression -> (state, input, output @ [Expr.eval state expression])
+        | Write e                   -> (s, i, o @ [Expr.eval s e])
         (* C1 -S1-> C' -S2-> C2*)
-        | Seq (state1, state2) -> eval (eval config state1) state2
-        | Skip -> config
-        | If (e, s1, s2) -> eval config (if Expr.eval state e != 0 then s1 else s2)
-        | While (e, s) ->
-          if Expr.eval state e != 0 then eval (eval config s) statement else config
-        | RepeatUntil (e, s) ->
-          let ((state', _, _) as config') = eval config s in
-          if Expr.eval state' e = 0 then eval config' statement else config';;
+        | Seq (e1, e2)              -> let (s1, i1, o1) = eval (s, i, o) e1 in
+                                       eval (s1, i1, o1) e2
+
+        | Skip                      -> (s, i, o)
+        | If (cond, thn, els)       -> let cv = Expr.eval s cond in
+                                       if cv <> 0 then
+                                           eval (s, i, o) thn
+                                       else
+                                           eval (s, i, o) els
+
+        | While (cond, body)        -> let cv = Expr.eval s cond in
+                                       if cv == 0 then (s, i, o)
+                                       else
+                                           let c' = eval (s, i, o) body in
+                                           eval c' (While (cond, body))
+
+        | RepeatUntil (body, cond)  -> let c' = eval (s, i, o) body in
+                                       eval c' (While (reverseCondition cond, body));;
 
     (* Statement parser - more complex structure than previous*)
     ostap (
-      parse  : seq | stmt;
+      parse: st1:stmt ";" st2:parse {Seq (st1, st2)} | stmt;
+      stmt: "read" "(" x:IDENT ")" {Read x}                 (* Read *)
+           | "write" "(" e:!(Expr.parse) ")" {Write e}      (* Write *)
+           | x:IDENT ":=" e:!(Expr.parse) {Assign (x, e)}   (* Assign *)
 
-      seq    : s1:stmt -";" s2:parse { Seq(s1, s2) };
-      stmt   : read | write | assign | skip |
-               if' | for' | while' | repeat';
-
-      read   : %"read" -"(" x:IDENT -")" { Read x };
-      write  : %"write" -"(" e:!(Expr.parse) -")" { Write e };
-      assign : x:IDENT -":=" e:!(Expr.parse) { Assign (x, e) };
-      skip   : %"skip" { Skip };
-
-      (* Cycles ends with the inverted start-word (ex: if ... fi) *)
-      if'    : %"if" e:!(Expr.parse)
-               %"then" s1:parse
-                 elif' :(%"elif" !(Expr.parse) %"then" parse)*  (* Multiple 'elif' is allowed *)
-                 else' :(%"else" parse)? %"fi"                  (* Contiditional expression *)
-                   {
-                     let else'' = match else' with
-                       | Some t -> t
-                       | None -> Skip
-                     in
-                     let else''' = List.fold_right (fun (e', t') t -> If (e', t', t)) elif' else'' in
-                     If (e, s1, else''')
-                   };
-      for'   : %"for" s1:parse "," e:!(Expr.parse) ","
-               s2:parse %"do" s3:parse %"od" { Seq (s1, While (e, Seq (s3, s2))) };
-      while' : %"while" e:!(Expr.parse)
-               %"do" s:parse %"od" { While (e, s) };
-      repeat': %"repeat" s:parse %"until"
-                e:!(Expr.parse) { RepeatUntil (e, s) }
+           (* Cycles ends with the inverted start-word (ex: if ... fi) *)
+           | "if" condition:!(Expr.parse)
+                "then" th:!(parse)
+                elif:(%"elif" !(Expr.parse) %"then" !(parse))*
+                els:(%"else" !(parse))?
+                "fi"
+                {
+                    let else_body = match els with
+                        | Some x -> x
+                        | _ -> Skip
+                    in
+                    let t = List.fold_right (fun (cond, body) curr -> If (cond, body, curr)) elif else_body in
+                    If (condition, th, t)
+                }
+            | "while" condition:!(Expr.parse) "do" body:!(parse) "od" { While (condition, body)}
+            | "for" init:!(parse) "," cond:!(Expr.parse) "," step:!(parse) "do" body:!(parse) "od"
+            {
+                Seq(init, While(cond, Seq(body, step)))
+            }
+            | "repeat" body:!(parse) "until" cond:!(Expr.parse)
+            {
+                RepeatUntil (body, cond)
+            }
+            | "skip" {Skip}
     )
 
   end
