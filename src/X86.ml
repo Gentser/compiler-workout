@@ -87,109 +87,80 @@ open SM
    of x86 instructions
 *)
 
-let rec compile env code =
-	match code with
-	| [] -> env, []
-	| instr::code' ->
-		let env, asmcode =
-			match instr with
-			| CONST n ->
-				let s, env = env#allocate in
-				env, [Mov (L n, s)]
-			| WRITE ->
-				let s, env = env#pop in
-				env, [Push s; Call "Lwrite"; Pop eax]
-			| LD x ->
-				let s, env = (env#global x)#allocate in
-				env, [Mov (M (env#loc x), eax); Mov (eax, s)]
-			| ST x ->
-				let s, env = (env#global x)#pop in
-				env, [Mov (s, eax); Mov (eax, M (env#loc x))]
+let mov_mem_mem x y =
+    match x with
+        | R _ -> [Mov (x, y)]
+        | L _ -> [Mov (x, y)]
+        | _ -> match x with
+            | R _ -> [Mov (x, y)]
+            | _ -> [Mov (x, eax); Mov (eax, y)]
 
-			| READ ->
-				let s, env = env#allocate in
-				env, [Call "Lread"; Mov (eax, s)]
+let suff_to_compare op = match op with
+    | "<" -> "l"
+    | "<=" -> "le"
+    | "==" -> "e"
+    | "!=" -> "ne"
+    | ">" -> "g"
+    | ">=" -> "ge"
 
-      | LABEL l     -> env, [Label l]
-      | JMP l       -> env, [Jmp l]
-      | CJMP (b, l) ->
-         let s, env = env#pop in
-         env, [Binop ("cmp", L 0, s); CJmp (b, l)]
+    | _ -> failwith "x86 compile error: Wrong compare operation"
 
-			| BINOP op ->
-				let right, left, env = env#pop2 in
-  			let result, env = env#allocate in
-				env, match op with
-		    | "+" | "-" | "*" ->
-					[Mov (left, eax); Binop (op, right, eax); Mov (eax, left)]
-	      | "/" ->
-					[Mov (left, eax); Cltd; IDiv right; Mov (eax, result)]
-	      | "%" ->
-				 	[Mov (left, eax); Cltd; IDiv right; Mov (edx, result)]
-  			| "&&" | "!!" ->
-					[
-            Binop ("^", eax, eax);
-  			    Binop ("^", edx, edx);
-            Binop ("cmp", L 0, left);
-            Set ("nz", "%al");
-            Binop ("cmp", L 0, right);
-            Set ("nz", "%dl");
-            Binop (op, eax, edx);
-            Mov (edx, result)
-					]
+let op_is_cmp op =
+    op = "<" || op = "<=" || op = "==" || op = "!=" || op = ">" || op = ">="
 
-        (* Don't know how to parametrize the expression for comparison: Set (OP, "%al"); *)
-  			| ">" ->
-          [
-            Mov (left, eax);
-            Binop ("cmp", right, eax);
-            Mov (eax, left)] @ [Mov (L 0, eax);
-            Set ("g", "%al");
-            Mov (eax, result)
-          ]
-  			| ">=" ->
-          [
-            Mov (left, eax);
-            Binop ("cmp", right, eax);
-            Mov (eax, left)] @ [Mov (L 0, eax);
-            Set ("ge", "%al");
-            Mov (eax, result)
-          ]
-  			| "<" ->
-          [
-            Mov (left, eax);
-            Binop ("cmp", right, eax);
-            Mov (eax, left)] @ [Mov (L 0, eax);
-            Set ("l", "%al");
-            Mov (eax, result)
-          ]
-  			| "<=" ->
-          [
-            Mov (left, eax);
-            Binop ("cmp", right, eax);
-            Mov (eax, left)] @ [Mov (L 0, eax);
-            Set ("le", "%al");
-            Mov (eax, result)
-          ]
-  			| "==" ->
-          [
-            Mov (left, eax);
-            Binop ("cmp", right, eax);
-            Mov (eax, left)] @ [Mov (L 0, eax);
-            Set ("e", "%al");
-            Mov (eax, result)
-          ]
-  			| "!=" ->
-          [
-            Mov (left, eax);
-            Binop ("cmp", right, eax);
-            Mov (eax, left)] @ [Mov (L 0, eax);
-            Set ("ne", "%al");
-            Mov (eax, result)
-          ]
-  			| _ -> failwith("Unknown operatorion: " ^ op)
-		in let env, asmcode' = compile env code' in
-		env, asmcode @ asmcode'
+let binop_mem_mem op x y =
+    match x with
+        | R _ | L _ -> y, [op x y]
+        | _ -> match x with
+            | R _ -> y, [op x y]
+            | _ -> edx, [Mov (y, edx); op x edx]
+
+(* Found this way instead of prevoius comparing with each cmp op and code repeating *)
+let compile_binop env op =
+    let lhs, rhs, env = env#pop2 in
+    let a, env = env#allocate in
+    env,
+    if op = "+" || op = "-" || op = "*" then
+        let res, code = binop_mem_mem (fun x y -> Binop (op, x, y)) lhs rhs in
+        code @ [Mov(res, a)]
+    else if op_is_cmp op then
+        let suff = suff_to_compare op in
+        let _,code = binop_mem_mem (fun x y -> Binop ("cmp", x, y)) lhs rhs in
+        [Binop ("^", eax, eax)] @ code @ [Set (suff, "%al"); Mov (eax, a)]
+    else if op = "/" || op = "%" then
+        let src = if op = "/" then eax else edx in
+        [Mov (rhs, eax); Cltd; IDiv lhs; Mov (src, a)]
+    else if  op = "!!" then
+        let res, code = binop_mem_mem (fun x y -> Binop (op, x, y)) lhs rhs in
+         code @ [Binop ("^", eax, eax); Binop ("cmp", L 0, res);
+             Set (suff_to_compare "!=", "%al"); Mov (eax, a)]
+    else if op = "&&" then
+         [Binop("^", eax, eax); Binop("^", edx, edx);
+              Binop("cmp", L 0, lhs); Set("ne", "%al");
+              Binop("cmp", L 0, rhs); Set("ne", "%dl");
+              Binop("&&", edx, eax); Mov(eax, a)]
+    else
+        failwith "x86 compile error: Wrong binop is used"
+
+
+let rec compile env p = match p with
+    | [] -> env, []
+    | x::xs ->
+        let new_env,code = match x with
+            | CONST x     -> let a, env' = env#allocate in env',[Mov (L x, a)]
+            | READ        -> let a, env' = env#allocate in env',[Call "Lread"; Mov (eax, a)]
+            | WRITE       -> let a, env' = env#pop in env',[Push a; Call "Lwrite"; Pop eax]
+            | LD name     -> let a, env' = env#allocate in
+                             let var_name = env#loc name in
+                             env', (mov_mem_mem (M var_name) a)
+            | ST name     -> let a, env' = (env#global name)#pop in
+                             let var_name = env#loc name in
+                             env', (mov_mem_mem a (M var_name))
+            | BINOP op    -> compile_binop env op
+            | LABEL l     -> env, [Label l]
+            | JMP label   -> env, [Jmp label]
+            | CJMP (c, l) -> let a, env = env#pop in env, [Binop ("cmp", L 0, a); CJmp (c, l)]
+        in let env', code' = compile new_env xs in env', (code @ code')
 
 (* A set of strings *)
 module S = Set.Make (String)

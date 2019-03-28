@@ -95,10 +95,9 @@ module Expr =
        (* Unknown operator *)
        | _    -> failwith (Printf.sprintf "Unknown operator");;
 
-    let rec eval state exp =
-       match exp with
+    let rec eval state exp = match exp with
        | Const n -> n
-       | Var x -> state x
+       | Var x -> State.eval state x
        | Binop (op, x1, x2) -> to_func op (eval state x1) (eval state x2)
 
     (* Expression parser. You can use the following terminals:
@@ -167,7 +166,7 @@ module Stmt =
         | head::tail -> (head, tail)
         | _ -> failwith(m)
 
-    let rec eval (s, i, o) p = match p with
+    let rec eval env ((s, i, o) as config) p = match p with
         (* <s, i, o> --> <s[ x<-[|e|]s ], i, o> *)
         | Assign (name, e)          -> (State.update name (Expr.eval s e) s, i, o)
         (* <s, z::i, o> --> <s[x<-z], i, o> *)
@@ -176,28 +175,38 @@ module Stmt =
         (* <s, i, o> --> <s, i, o @ [ [|e|]s ]> *)
         | Write e                   -> (s, i, o @ [Expr.eval s e])
         (* C1 -S1-> C' -S2-> C2*)
-        | Seq (e1, e2)              -> let (s1, i1, o1) = eval (s, i, o) e1 in
-                                       eval (s1, i1, o1) e2
+        | Seq (e1, e2)              -> let (s1, i1, o1) = eval env config e1 in
+                                       eval env (s1, i1, o1) e2
 
-        | Skip                      -> (s, i, o)
+        | Skip                      -> config
         | If (cond, thn, els)       -> let cv = Expr.eval s cond in
                                        if cv <> 0 then
-                                           eval (s, i, o) thn
+                                           eval env config thn
                                        else
-                                           eval (s, i, o) els
+                                           eval env config els
 
         | While (cond, body)        -> let cv = Expr.eval s cond in
-                                       if cv == 0 then (s, i, o)
+                                       if cv == 0 then config
                                        else
-                                           let c' = eval (s, i, o) body in
-                                           eval c' (While (cond, body))
+                                           let c' = eval env config body in
+                                           eval env c' (While (cond, body))
 
-        | Repeat (body, cond)  -> let c' = eval (s, i, o) body in
-                                       eval c' (While (reverseCondition cond, body));;
+        | Repeat (body, cond)       -> let c' = eval env config body in
+                                       eval env c' (While (reverseCondition cond, body))
+
+        | Call (name, args)         -> let (arg_names, locals, body) = env#definition name in
+                                       let fun_state = State.push_scope s (arg_names @ locals) in
+                                       let args_values = List.map (Expr.eval s) args in
+                                       let fun_env_w_args =
+                                           List.fold_left (fun s (name, value) -> State.update name value s) fun_state
+                                                          (List.combine arg_names args_values) in
+                                       let (s', i', o') = eval env (fun_env_w_args, i, o) body in
+                                       ((State.drop_scope s' s), i', o');;
 
     (* Statement parser *)
     ostap (
       parse: st1:stmt ";" st2:parse {Seq (st1, st2)} | stmt;
+
       stmt: "read" "(" x:IDENT ")" {Read x}                 (* Read *)
            | "write" "(" e:!(Expr.parse) ")" {Write e}      (* Write *)
            | x:IDENT ":=" e:!(Expr.parse) {Assign (x, e)}   (* Assign *)
@@ -225,6 +234,10 @@ module Stmt =
             {
                 Repeat (body, cond)
             }
+            | name:IDENT "(" args:(!(Expr.parse))* ")"
+            {
+                Call (name, args)
+            }
             | "skip" {Skip}
     )
 
@@ -238,7 +251,15 @@ module Definition =
     type t = string * (string list * string list * Stmt.t)
 
     ostap (
-      parse: empty {failwith "Not yet implemented"}
+      parse: "fun" name:IDENT "(" args:(IDENT)* ")"
+             local:(%"local" (IDENT)*)?
+             "{" body:!(Stmt.parse) "}"
+             {
+                 let local = match local with
+                    | Some x -> x
+                    | _ -> [] in
+                 name, (args, local, body)
+             }
     )
 
   end
