@@ -35,7 +35,8 @@ type config = (prg * State.t) list * int list * Expr.config
 let hd_tl = Language.Stmt.headToTail
 let cjmp_sat znz value = if (znz = "nz" && value <> 0) || (znz = "z" && value == 0) then true else false
 
-let rec eval env (callstack, stack, ((state, input, output) as config)) p = if 1 == 0 then (callstack, stack, config) else
+let rec eval env (callstack, stack, ((state, input, output) as config)) p =
+    if 1 == 0 then (callstack, stack, config) else
     let eval_expr expr = match expr with
         | BINOP op -> (match stack with
             | (y::x::xs) -> (Language.Expr.to_func op x y :: xs, config)
@@ -50,8 +51,8 @@ let rec eval env (callstack, stack, ((state, input, output) as config)) p = if 1
                      let new_state = Language.State.update name head state in
                      (tail, (new_state, input, output))
         | LABEL _ -> (stack, config)
-        | BEGIN (arg_names, locals) ->
-                let fun_state = Language.State.push_scope state (arg_names @ locals) in
+        | BEGIN (_, arg_names, locals) ->
+                let fun_state = Language.State.enter state (arg_names @ locals) in
                 let new_state, stack_left =
                     List.fold_left (fun (state, x::stack) name -> (State.update name x state, stack))
                          (fun_state, stack) arg_names in
@@ -65,10 +66,10 @@ let rec eval env (callstack, stack, ((state, input, output) as config)) p = if 1
                 if cjmp_sat znz head
                 then eval env (callstack, tail, config) (env#labeled label)
                 else eval env (callstack, tail, config) xs
-            | CALL f -> eval env ((xs, state)::callstack, stack, config) (env#labeled f)
-            | END -> (match callstack with
+            | CALL (f, _, _) -> eval env ((xs, state)::callstack, stack, config) (env#labeled f)
+            |RET _ | END -> (match callstack with
                 | (p, old_s)::callstack' ->
-                    let new_state = Language.State.drop_scope state old_s in
+                    let new_state = Language.State.leave state old_s in
                     eval env (callstack', stack, (new_state, input, output)) p
                 | _ -> (callstack, stack, config)
                 )
@@ -154,7 +155,11 @@ let rec compile_impl lb p after_label = match p with
 
     | Language.Stmt.Call (f, args) ->
         let compile_args = List.concat (List.map (compile_expr) (List.rev args)) in
-        compile_args @ [CALL f], false, lb
+        compile_args @ [CALL (f, List.length args, false)], false, lb
+
+    | Language.Stmt.Return expr -> (match expr with
+                                    | Some x -> (compile_expr x) @ [RET true]
+                                    | _ -> [RET false]), false, lb
 
 
 (* SM compiler itself *)
@@ -169,7 +174,7 @@ let rec compile (defs, main) =
     let compile_defs lb defs =
         List.fold_left (fun (lb, prg) (name, (args, locals, body)) ->
             let (lb, body) = top_compile lb body in
-            lb, prg @ [LABEL name] @ [BEGIN (args, locals)] @ body @ [END]) (lb, []) defs
+            lb, prg @ [LABEL name] @ [BEGIN (name, args, locals)] @ body @ [END]) (lb, []) defs
     in
 
     let lb = new labels in
