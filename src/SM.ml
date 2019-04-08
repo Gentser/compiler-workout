@@ -117,6 +117,8 @@ let rec compile_expr expr = match expr with
   | Language.Expr.Var   x               -> [LD x]
   | Language.Expr.Const n               -> [CONST n]
   | Language.Expr.Binop (op, x, y)      -> compile_expr x @ compile_expr y @ [BINOP op]
+  | Language.Expr.Call (f, args)        -> let compile_args = List.concat (List.map (compile_expr) (List.rev args)) in
+                                           compile_args @ [CALL (f, List.length args, true)]
 
 (* Statement compilation *)
 let rec compile_impl lb p after_label = match p with
