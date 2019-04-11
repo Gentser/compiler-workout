@@ -88,108 +88,93 @@ open SM
    Take an environment, a stack machine program, and returns a pair --- the updated environment and the list
    of x86 instructions
 *)
-let mov_mem_mem x y =
-    match x with
-        | R _ -> [Mov (x, y)]
-        | L _ -> [Mov (x, y)]
-        | _ -> match x with
-            | R _ -> [Mov (x, y)]
-            | _ -> [Mov (x, eax); Mov (eax, y)]
 
-let suff_to_compare op = match op with
-    | "<" -> "l"
-    | "<=" -> "le"
-    | "==" -> "e"
-    | "!=" -> "ne"
-    | ">" -> "g"
-    | ">=" -> "ge"
+let ensureFstReg codeProducer env =
+  let fst, snd, env = env#pop2 in
+  let _, env        = env#allocate in
+  match fst with
+| S _ -> (env, Mov(fst, eax) :: codeProducer eax snd)
+| R _ -> (env, codeProducer fst snd)
+| _ -> failwith "unexpected addressing mode"
 
-    | _ -> failwith "x86 compile error: Wrong compare operation"
+let handleSimpleInstr instr env =
+  let codeProducer = fun fst snd -> [Binop(instr, snd, fst); Mov(fst, snd)] in
+  ensureFstReg codeProducer env
 
-let op_is_cmp op =
-    op = "<" || op = "<=" || op = "==" || op = "!=" || op = ">" || op = ">="
+let handleDivInstr instr env outputReg =
+  let fst, snd, env = env#pop2 in
+  let _, env        = env#allocate in
+  (env, [Mov(fst, eax); Cltd; IDiv(snd); Mov(outputReg, snd)])
 
-let binop_mem_mem op x y =
-    match x with
-        | R _ | L _ -> y, [op x y]
-        | _ -> match x with
-            | R _ -> y, [op x y]
-            | _ -> edx, [Mov (y, edx); op x edx]
+let handleComparisonInstr instr env =
+  let codeProducer = fun fst snd -> [Binop("cmp", snd, fst); Mov(L 0, eax); Set(instr, "%AL"); Mov(eax, snd)] in
+  ensureFstReg codeProducer env
 
-(* Found this way instead of prevoius comparing with each cmp op and code repeating *)
-let compile_binop env op =
-    let lhs, rhs, env = env#pop2 in
-    let a, env = env#allocate in
-    env,
-    if op = "+" || op = "-" || op = "*" then
-        let res, code = binop_mem_mem (fun x y -> Binop (op, x, y)) lhs rhs in
-        code @ [Mov(res, a)]
-    else if op_is_cmp op then
-        let suff = suff_to_compare op in
-        let _,code = binop_mem_mem (fun x y -> Binop ("cmp", x, y)) lhs rhs in
-        [Binop ("^", eax, eax)] @ code @ [Set (suff, "%al"); Mov (eax, a)]
-    else if op = "/" || op = "%" then
-        let src = if op = "/" then eax else edx in
-        [Mov (rhs, eax); Cltd; IDiv lhs; Mov (src, a)]
-    else if  op = "!!" then
-        let res, code = binop_mem_mem (fun x y -> Binop (op, x, y)) lhs rhs in
-         code @ [Binop ("^", eax, eax); Binop ("cmp", L 0, res);
-             Set (suff_to_compare "!=", "%al"); Mov (eax, a)]
-    else if op = "&&" then
-         [Binop("^", eax, eax); Binop("^", edx, edx);
-              Binop("cmp", L 0, lhs); Set("ne", "%al");
-              Binop("cmp", L 0, rhs); Set("ne", "%dl");
-              Binop("&&", edx, eax); Mov(eax, a)]
-    else
-        failwith "x86 compile error: Wrong binop is used"
+let i2b2 env =
+  let fst, snd, _ = env#pop2 in
+  let zero, env   = env#allocate in
+  let env, cmpCode = handleComparisonInstr "NE" env in
+  let swap = [Mov(fst, eax); Mov(snd, edx); Mov(eax, snd); Mov(edx, fst)] in
+  (env, [Mov(L 0, zero)] @ cmpCode @ swap @ cmpCode @ swap)
 
+let handleBooleanInstr instr env =
+  let env, convertCode = i2b2 env in
+  let env, code    = handleSimpleInstr instr env in
+  (env, convertCode @ code)
 
-let rec init_impl cnt = if cnt < 0 then [] else cnt :: init_impl (cnt - 1)
-let init cnt = List.rev (init_impl (cnt - 1))
+let compileBinopInstr instr env = match instr with
+| "+" -> handleSimpleInstr "+" env
+| "-" -> handleSimpleInstr "-" env
+| "*" -> handleSimpleInstr "*" env
+| "/" -> handleDivInstr "/" env eax
+| "%" -> handleDivInstr "%" env edx
+| ">" -> handleComparisonInstr "G" env
+| "<" -> handleComparisonInstr "L" env
+| ">="-> handleComparisonInstr "GE" env
+| "<="-> handleComparisonInstr "LE" env
+| "=="-> handleComparisonInstr "E" env
+| "!="-> handleComparisonInstr "NE" env
+| "!!"-> handleBooleanInstr "!!" env
+| "&&"-> handleBooleanInstr "&&" env
+| _ -> failwith ("unknown__operand:" ^ instr)
 
-let rec compile env p = match p with
-    | [] -> env, []
-    | x::xs ->
-        let new_env,code = match x with
-            | CONST x     -> let a, env' = env#allocate in env',[Mov (L x, a)]
-            | LD name     -> let a, env' = env#allocate in
-                             let var_name = env#loc name in
-                             env', (mov_mem_mem var_name a)
-            | ST name     -> let a, env' = (env#global name)#pop in
-                             let var_name = env#loc name in
-                             env', (mov_mem_mem a var_name)
-            | BINOP op    -> compile_binop env op
-            | LABEL l     -> env, [Label l]
-            | JMP label   -> env, [Jmp label]
-            | CJMP (c, l) -> let a, env = env#pop in env, [Binop ("cmp", L 0, a); CJmp (c, l)]
-            | CALL (name, arg_cnt, flag) ->
-                    let (env, args) =
-                        List.fold_left (fun (env, args) _ ->
-                            let a, env = env#pop in (env, a::args))
-                        (env, []) (init arg_cnt) in
-                    let push_args = List.map (fun x -> Push x) args in
-                    let (env, get_res) = if flag
-                                         then let (a, env) = env#allocate in
-                                              env, [Mov (eax, a)]
-                                         else
-                                              env, [] in
-                    env, push_args @ [Call name; Binop ("+", L (arg_cnt * word_size), esp)] @ get_res
-            | BEGIN (name, args, locals) ->
-                    let push_regs = List.map (fun x -> Push (R x)) (init num_of_regs) in
-                    let prolog = [Push ebp; Mov (esp, ebp)] in
-                    let env = env#enter name args locals in
-                    env, prolog @ push_regs @ [Binop ("-", M ("$" ^ env#lsize), esp)]
-            | END ->
-                    let pop_regs = List.map (fun x -> Pop (R x)) (List.rev (init num_of_regs)) in
-                    let meta = [Meta (Printf.sprintf "\t.set %s, %d" env#lsize (env#allocated * word_size))] in
-                    let epilogue = [Mov (ebp, esp); Pop ebp; Ret] in
-                    env, [Label env#epilogue] @ pop_regs @ epilogue @ meta
-            | RET flag ->
-                    if flag
-                    then let a,env = env#pop in
-                         env, [Mov (a, eax); Jmp env#epilogue]
-                    else env, [Jmp env#epilogue]
-        in let env', code' = compile new_env xs in env', (code @ code')
+let compileInstr instr env = match instr with
+| CONST(n)   -> let s, env = env#allocate in (env, [Mov(L n, s)])
+| LD(x)      -> let s, env = env#allocate in (env, [Mov (env#loc x, eax); Mov (eax, s)])
+| ST(x)      -> (
+                 let v = env#loc x in
+                 let env = match v with
+                  | M _ -> env#global x
+                  | _ -> env in
+                 let s, env = env#pop in
+                 (env, [Mov (s, eax); Mov (eax, v)])
+                )
+| BINOP(x)  -> compileBinopInstr x env
+| LABEL(x)  -> (env, [Label(x)])
+| JMP(x)    -> (env, [Jmp(x)])
+| CJMP(s, x)-> let fst, snd, _ = env#pop2 in(env, [Mov(fst, eax); Binop("cmp", snd, eax); CJmp(s, x)])
+| BEGIN(fname, argnames, locnames) -> let env = env#enter fname argnames locnames in (env, [Push(ebp); Mov(esp, ebp); Binop("-", M("$" ^ env#lsize), esp)])
+| END       -> (env, [Label(env#epilogue); Mov(ebp, esp); Pop(ebp); Ret; MetaSet(env#lsize, env#allocated * word_size)])
+| RET(hasVal) -> if hasVal then let x, env = env#pop in (env, [Mov(x, eax); Jmp(env#epilogue)]) else (env, [Jmp(env#epilogue)])
+| CALL(fname, nargs, isFunction) ->
+  let pushRegisters, popRegisters = List.fold_left (fun (pushRegisters, popRegisters) reg -> Push(reg)::pushRegisters, Pop(reg)::popRegisters) ([], []) env#live_registers in
+  let env, code =
+   let rec pushArgsHelper env pushArgs n = match n with
+    | 0 -> (env, pushArgs)
+    | _ -> let x, env = env#pop in
+           pushArgsHelper env (Push(x)::pushArgs) (n - 1)
+   in
+   let env, pushArgs = pushArgsHelper env [] nargs in
+   (env, pushRegisters @ pushArgs @ [Call("L" ^ fname); Binop("+", L(nargs * word_size), esp)] @ (List.rev popRegisters))
+  in
+  if isFunction then let x, env = env#allocate in (env, code @ [Mov(eax, x)]) else (env, code)
+
+let rec compile env code = match code with
+| [] -> (env, [])
+| instr :: instrxs ->
+  let env, asm = compileInstr instr env in
+  let env, asmxs = compile env instrxs in
+  (env, asm @ asmxs)
 
 (* A set of strings *)
 module S = Set.Make (String)
