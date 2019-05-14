@@ -23,14 +23,14 @@
 # define BOX(x)     ((((int) (x)) << 1) | 0x0001)
 
 typedef struct {
-  int tag; 
+  int tag;
   char contents[0];
-} data; 
+} data;
 
 typedef struct {
-  int tag; 
-  data contents; 
-} sexp; 
+  int tag;
+  data contents;
+} sexp;
 
 extern int Blength (void *p) {
   data *a = TO_DATA(p);
@@ -43,7 +43,7 @@ char* de_hash (int n) {
   char *p = &buf[5];
 
   /*printf ("tag: %d\n", n);*/
-  
+
   *p-- = 0;
 
   while (n != 0) {
@@ -51,7 +51,7 @@ char* de_hash (int n) {
     *p-- = chars [n & 0x003F];
     n = n >> 6;
   }
-  
+
   return ++p;
 }
 
@@ -92,7 +92,7 @@ static void printStringBuf (char *fmt, ...) {
   buf     = &stringBuf.contents[stringBuf.ptr];
   rest    = stringBuf.len - stringBuf.ptr;
   written = vsnprintf (buf, rest, fmt, args);
-  
+
   if (written >= rest) {
     extendStringBuf ();
     goto again;
@@ -106,11 +106,11 @@ static void printValue (void *p) {
   else {
     data *a = TO_DATA(p);
 
-    switch (TAG(a->tag)) {      
+    switch (TAG(a->tag)) {
     case STRING_TAG:
       printStringBuf ("\"%s\"", a->contents);
       break;
-      
+
     case ARRAY_TAG:
       printStringBuf ("[");
       for (int i = 0; i < LEN(a->tag); i++) {
@@ -119,7 +119,7 @@ static void printValue (void *p) {
       }
       printStringBuf ("]");
       break;
-      
+
     case SEXP_TAG:
       printStringBuf ("`%s", de_hash (TO_SEXP(p)->tag));
       if (LEN(a->tag)) {
@@ -131,23 +131,24 @@ static void printValue (void *p) {
 	printStringBuf (")");
       }
       break;
-      
+
     default:
       printStringBuf ("*** invalid tag: %x ***", TAG(a->tag));
     }
   }
 }
 
-extern void* Belem (void *p, int i) {
+extern void* Belem (int i, void *p) {
   data *a = TO_DATA(p);
+
   i = UNBOX(i);
-  
+
   /* printf ("elem %d = %p\n", i, (void*) ((int*) a->contents)[i]); */
 
   if (TAG(a->tag) == STRING_TAG) {
     return (void*) BOX(a->contents[i]);
   }
-  
+
   return (void*) ((int*) a->contents)[i];
 }
 
@@ -157,21 +158,21 @@ extern void* Bstring (void *p) {
 
   r->tag = n;
   strncpy (r->contents, p, n + 1);
-  
+
   return r->contents;
 }
 
 extern void* Bstringval (void *p) {
   void *s;
-  
+
   createStringBuf ();
   printValue (p);
 
   s = Bstring (stringBuf.contents);
-  
+
   deleteStringBuf ();
 
-  return s;
+ return s;
 }
 
 extern void* Barray (int n, ...) {
@@ -180,14 +181,14 @@ extern void* Barray (int n, ...) {
   data *r = (data*) malloc (sizeof(int) * (n+1));
 
   r->tag = ARRAY_TAG | n;
-  
+
   va_start(args, n);
-  
+
   for (i=0; i<n; i++) {
     int ai = va_arg(args, int);
-    ((int*)r->contents)[i] = ai; 
+    ((int*)r->contents)[i] = ai;
   }
-  
+
   va_end(args);
 
   return r->contents;
@@ -196,39 +197,39 @@ extern void* Barray (int n, ...) {
 extern void* Bsexp (int n, ...) {
   va_list args;
   int i;
-  sexp *r = (sexp*) malloc (sizeof(int) * (n+2));
+  sexp *r = (sexp*) malloc (sizeof(int) * (n+3));
   data *d = &(r->contents);
 
-  d->tag = SEXP_TAG | (n-1);
-  
+  d->tag = SEXP_TAG | n;
+
   va_start(args, n);
-  
-  for (i=0; i<n-1; i++) {
+  r->tag = va_arg(args, int); // Order changed for easier handling in X86
+
+  for (i=0; i<n; i++) {
     int ai = va_arg(args, int);
     //printf ("arg %d = %x\n", i, ai);
-    ((int*)d->contents)[i] = ai; 
+    ((int*)d->contents)[i] = ai;
   }
 
-  r->tag = va_arg(args, int);
   va_end(args);
 
   //printf ("tag %d\n", r->tag);
   //printf ("returning %p\n", d->contents);
-  
+
   return d->contents;
 }
 
-extern int Btag (void *d, int t) {
+extern int Btag (int t, void *d) { // Order changed for easier handling in X86
   data *r = TO_DATA(d);
   return BOX(TAG(r->tag) == SEXP_TAG && TO_SEXP(d)->tag == t);
 }
-		 
-extern void Bsta (int n, int v, void *s, ...) {
+
+extern void Bsta (int n, void *s, int v, ...) { // Order changed for easier handling in X86
   va_list args;
   int i, k;
   data *a;
-  
-  va_start(args, s);
+
+  va_start(args, v);
 
   for (i=0; i<n-1; i++) {
     k = UNBOX(va_arg(args, int));
@@ -237,7 +238,7 @@ extern void Bsta (int n, int v, void *s, ...) {
 
   k = UNBOX(va_arg(args, int));
   a = TO_DATA(s);
-  
+
   if (TAG(a->tag) == STRING_TAG)((char*) s)[k] = (char) UNBOX(v);
   else ((int*) s)[k] = v;
 }
@@ -250,14 +251,14 @@ extern void Lprintf (char *s, ...) {
   va_list args;
 
   va_start (args, s);
-  vprintf  (s, args); // vprintf (char *, va_list) <-> printf (char *, ...) 
+  vprintf  (s, args); // vprintf (char *, va_list) <-> printf (char *, ...)
   va_end   (args);
 }
 
 extern void* Lstrcat (void *a, void *b) {
   data *da = TO_DATA(a);
   data *db = TO_DATA(b);
-  
+
   data *d  = (data *) malloc (sizeof(int) + LEN(da->tag) + LEN(db->tag) + 1);
 
   d->tag = LEN(da->tag) + LEN(db->tag);
@@ -283,12 +284,11 @@ extern FILE* Lfopen (char *f, char *m) {
 extern void Lfclose (FILE *f) {
   fclose (f);
 }
-   
+
 /* Lread is an implementation of the "read" construct */
 extern int Lread () {
   int result;
-
-  printf ("> "); 
+  printf ("> ");
   fflush (stdout);
   scanf  ("%d", &result);
 
@@ -302,4 +302,3 @@ extern int Lwrite (int n) {
 
   return 0;
 }
-
