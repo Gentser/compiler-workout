@@ -230,7 +230,15 @@ let rec compile (defs, main) =
   | Expr.Var   x          -> [LD x]
   | Expr.Const n          -> [CONST n]
   | Expr.String s -> [STRING s]
-  | Expr.Binop (op, x, y) -> expr x @ expr y @ [BINOP op]
+  (* | Expr.Binop (op, x, y) -> expr x @ expr y @ [BINOP op] *)
+
+  (* Optimization of zero-multiplication *)
+  | Expr.Binop (op, x, y) -> if op=="*" then (match x,y with
+                                              | Expr.Const 0, _ -> [CONST 0]
+                                              | _, Expr.Const 0 -> [CONST 0]
+                                             )
+                                        else expr x @ expr y @ [BINOP op]
+
   | Expr.Call (name, args_exprs) -> (* has return value *)
      let args_init = List.concat (List.rev (List.map expr args_exprs))
      in args_init @ [CALL (name, List.length args_exprs, true)]
