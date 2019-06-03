@@ -185,7 +185,16 @@ and compile_expr = function
     let compiled_exprs = List.flatten (List.rev (List.map compile_expr exprs)) in
     compiled_exprs @ [SEXP (name, List.length exprs)]
   | Expr.Var x -> [LD x]
-  | Expr.Binop (op, x, y) -> compile_expr x @ compile_expr y @ [BINOP op]
+  (* | Expr.Binop (op, x, y) -> compile_expr x @ compile_expr y @ [BINOP op] *)
+
+  (* Optimization of zero-multiplication *)
+  | Expr.Binop (op, x, y) -> if op=="*" then (match x,y with
+                                        | Expr.Const 0, _ -> [CONST 0]
+                                        | _, Expr.Const 0 -> [CONST 0]
+                                        )
+                             else compile_expr x @ compile_expr y @ [BINOP op]
+
+
   | Expr.Elem (arr, idx) -> compile_expr arr @ compile_expr idx @ [CALL (".elem", 2, false)]
   | Expr.Length arr -> compile_expr arr @ [CALL (".length", 1, false)]
   | Expr.StringVal v -> compile_expr v @ [CALL (".stringval", 1, false)]
@@ -277,7 +286,7 @@ and compile_block stmt end_label =
 and compile_stmt stmt =
   let end_label = label_generator#generate in
   let prg, used = compile_block stmt end_label in
-  prg @ (if used then [LABEL end_label] else []) 
+  prg @ (if used then [LABEL end_label] else [])
 
 and compile_defs defs =
   List.fold_left
