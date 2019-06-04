@@ -236,8 +236,41 @@ let rec compile (defs, main) =
   | Expr.Binop (op, x, y) -> if op=="*" then (match x,y with
                                               | Expr.Const 0, _ -> [CONST 0]
                                               | _, Expr.Const 0 -> [CONST 0]
+                                              | Expr.Const n1, Expr.Const n2 -> [CONST (n1*n2)]
+                                              | _, _ -> expr x @ expr y @ [BINOP op]
                                              )
-                                        else expr x @ expr y @ [BINOP op]
+                             else if op=="/" then (match x,y with
+                                                   | Expr.Const 0, _ -> [CONST 0]
+                                                   | Expr.Const n1, Expr.Const n2 -> [CONST (n1/n2)]
+                                                   | _, _ -> expr x @ expr y @ [BINOP op]
+                                                  )
+                             else if op=="+" then (match x,y with
+                                                    | Expr.Const n1, Expr.Const n2 -> [CONST (n1+n2)]
+                                                    | _, _ -> expr x @ expr y @ [BINOP op]
+                                                  )
+                             else if op=="-" then (match x,y with
+                                                   | Expr.Const n1, Expr.Const n2 -> [CONST (n1-n2)]
+                                                   | _, _ -> expr x @ expr y @ [BINOP op]
+                                                  )
+                             else expr x @ expr y @ [BINOP op]
+  (* | Expr.Binop (op, x, y) -> match op with
+      | "*" -> match x,y with
+                  | Expr.Const 0, _ -> [CONST 0]
+                  | _, Expr.Const 0 -> [CONST 0]
+                  | Expr.Const n1, Expr.Const n2 -> [CONST (n1*n2)]
+                  | _, _ -> expr x @ expr y @ [BINOP op]
+      | "/" -> match x,y with
+                  | Expr.Const 0, _ -> [CONST 0]
+                  | Expr.Const n1, Expr.Const n2 -> [CONST (n1/n2)]
+                  | _, _ -> expr x @ expr y @ [BINOP op]
+      | "+" ->   match x,y with
+                  | Expr.Const n1, Expr.Const n2 -> [CONST (n1+n2)]
+                  | _, _ -> expr x @ expr y @ [BINOP op]
+      | "-" ->   match x,y with
+                  | Expr.Const n1, Expr.Const n2 -> [CONST (n1-n2)]
+                  | _, _ -> expr x @ expr y @ [BINOP op]
+      | _   ->   match x,y with
+                  | _, _ -> expr x @ expr y @ [BINOP op] *)
 
   | Expr.Call (name, args_exprs) -> (* has return value *)
      let args_init = List.concat (List.rev (List.map expr args_exprs))
