@@ -1,0 +1,8 @@
+n := 112;
+k := 1000000000;
+res := 1;
+while k > 0 do
+  res := (res + 1) * 0;
+  k := k - 1
+od;
+write(res)

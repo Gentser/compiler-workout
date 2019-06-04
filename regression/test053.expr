@@ -1,0 +1,4 @@
+x := read ();
+y := read ();
+z := 0*(x/y + x*y + x*380/(x - 2)*y - (x + y)*x);
+write (z)
