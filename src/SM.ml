@@ -226,6 +226,41 @@ let rec compile_binding pattern =
   (* now stack is like [a_1...a_n value@stacktop] *)
 
 let rec compile (defs, main) =
+
+  let isBinop = function
+  | Expr.Binop (op, x, y) -> true
+  | _                     -> false
+  in
+
+  let areBothArithm = function
+  | Expr.Const n1, Expr.Const n2 -> true
+  | _, _ -> false
+  in
+
+  let rec optimize = function
+  | Expr.Binop (op, x, y) -> if isBinop x then
+                                x' = optimize x
+                             else x' = x
+
+                             if isBinop y then 
+                                y' = optimize y
+                             else y' = y
+
+                             if areBothArithm x y then
+                                if op=="*" then match x,y
+                                  | Expr.Const 0, _ -> Expr.Const 0
+                                  | _, Expr.Const 0 -> Expr.Const 0
+                                  | Expr.Const n1, Expr.Const n2 -> Expr.Const (n1*n2)
+
+                                else if op=="/" then match x,y
+                                  | Expr.Const 0, _ -> Expr.Const 0
+                                  | Expr.Const n1, Expr.Const n2 -> Expr.Const (n1/n2)
+                                else if op=="+" then Expr.Const (x+y)
+                                else if op=="-" then Expr.Const (x-y)
+
+                             else
+  in
+
   let rec expr = function
   | Expr.Var   x          -> [LD x]
   | Expr.Const n          -> [CONST n]
@@ -236,41 +271,8 @@ let rec compile (defs, main) =
   | Expr.Binop (op, x, y) -> if op=="*" then (match x,y with
                                               | Expr.Const 0, _ -> [CONST 0]
                                               | _, Expr.Const 0 -> [CONST 0]
-                                              | Expr.Const n1, Expr.Const n2 -> [CONST (n1*n2)]
-                                              | _, _ -> expr x @ expr y @ [BINOP op]
                                              )
-                             else if op=="/" then (match x,y with
-                                                   | Expr.Const 0, _ -> [CONST 0]
-                                                   | Expr.Const n1, Expr.Const n2 -> [CONST (n1/n2)]
-                                                   | _, _ -> expr x @ expr y @ [BINOP op]
-                                                  )
-                             else if op=="+" then (match x,y with
-                                                    | Expr.Const n1, Expr.Const n2 -> [CONST (n1+n2)]
-                                                    | _, _ -> expr x @ expr y @ [BINOP op]
-                                                  )
-                             else if op=="-" then (match x,y with
-                                                   | Expr.Const n1, Expr.Const n2 -> [CONST (n1-n2)]
-                                                   | _, _ -> expr x @ expr y @ [BINOP op]
-                                                  )
-                             else expr x @ expr y @ [BINOP op]
-  (* | Expr.Binop (op, x, y) -> match op with
-      | "*" -> match x,y with
-                  | Expr.Const 0, _ -> [CONST 0]
-                  | _, Expr.Const 0 -> [CONST 0]
-                  | Expr.Const n1, Expr.Const n2 -> [CONST (n1*n2)]
-                  | _, _ -> expr x @ expr y @ [BINOP op]
-      | "/" -> match x,y with
-                  | Expr.Const 0, _ -> [CONST 0]
-                  | Expr.Const n1, Expr.Const n2 -> [CONST (n1/n2)]
-                  | _, _ -> expr x @ expr y @ [BINOP op]
-      | "+" ->   match x,y with
-                  | Expr.Const n1, Expr.Const n2 -> [CONST (n1+n2)]
-                  | _, _ -> expr x @ expr y @ [BINOP op]
-      | "-" ->   match x,y with
-                  | Expr.Const n1, Expr.Const n2 -> [CONST (n1-n2)]
-                  | _, _ -> expr x @ expr y @ [BINOP op]
-      | _   ->   match x,y with
-                  | _, _ -> expr x @ expr y @ [BINOP op] *)
+                                        else expr x @ expr y @ [BINOP op]
 
   | Expr.Call (name, args_exprs) -> (* has return value *)
      let args_init = List.concat (List.rev (List.map expr args_exprs))

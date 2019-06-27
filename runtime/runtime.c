@@ -5,7 +5,7 @@
 # include <malloc.h>
 # include <string.h>
 # include <stdarg.h>
-# include <alloca.h>
+# include <malloc.h>
 
 # define STRING_TAG 0x00000000
 # define ARRAYU_TAG 0x01000000
@@ -17,9 +17,9 @@
 # define TO_DATA(x) ((data*)((char*)(x)-sizeof(int)))
 
 typedef struct {
-  int tag; 
+  int tag;
   char contents[0];
-} data; 
+} data;
 
 extern int Blength (void *p) {
   data *a = TO_DATA(p);
@@ -30,7 +30,7 @@ extern void* Belem (void *p, int i) {
   data *a = TO_DATA(p);
 
   if (TAG(a->tag) == STRING_TAG) return (void*)(int)(a->contents[i]);
-   
+
   return (void*) ((int*) a->contents)[i];
 }
 
@@ -40,7 +40,7 @@ extern void* Bstring (void *p) {
 
   r->tag = n;
   strncpy (r->contents, p, n + 1);
-  
+
   return r->contents;
 }
 
@@ -50,14 +50,14 @@ extern void* Barray (int n, ...) {
   data *r = (data*) malloc (sizeof(int) * (n+1));
 
   r->tag = ARRAYB_TAG | n; //(boxed ? ARRAYB_TAG : ARRAYU_TAG) | size;
-  
+
   va_start(args, n);
-  
+
   for (i=0; i<n; i++) {
     int ai = va_arg(args, int);
-    ((int*)r->contents)[i] = ai; 
+    ((int*)r->contents)[i] = ai;
   }
-  
+
   va_end(args);
 
   return r->contents;
@@ -67,7 +67,7 @@ extern void Bsta (int n, int v, void *s, ...) {
   va_list args;
   int i, k;
   data *a;
-  
+
   va_start(args, s);
 
   for (i=0; i<n-1; i++) {
@@ -77,7 +77,7 @@ extern void Bsta (int n, int v, void *s, ...) {
 
   k = va_arg(args, int);
   a = TO_DATA(s);
-  
+
   if (TAG(a->tag) == STRING_TAG)((char*) s)[k] = (char) v;
   else ((int*) s)[k] = v;
 }
@@ -109,7 +109,7 @@ extern void* Lstrcat (void *p1, void *p2) {
   strncpy (r->contents, s1->contents, s1->tag);
   strncpy (&(r->contents)[s1->tag], s2->contents, s2->tag+1);
   return r->contents;
-} 
+}
 
 extern void* Lstrmake (int n, int c) {
   data *r = (data*) malloc (n + sizeof (int) + 1);
@@ -126,7 +126,7 @@ extern void* Lstrsub (void *p, int i, int l) {
   r->tag = l;
   strncpy (r->contents, &(s->contents[i]), l);
   r->contents[l] = 0;
-  return r->contents; 
+  return r->contents;
 }
 
 extern int Lstrcmp (void *p1, void *p2) {
@@ -139,7 +139,7 @@ extern int Lstrcmp (void *p1, void *p2) {
   }
   if (s1->tag < s2->tag) return -1;
   if (s1->tag > s2->tag) return  1;
-  return 0;    
+  return 0;
 }
 
 extern int Larrlen (void *p) {
@@ -181,14 +181,14 @@ extern void* L0makeArray (int boxed, int size, ...) {
   data *r = (data*) malloc (sizeof(int)*(size+1));
 
   r->tag = (boxed ? ARRAYB_TAG : ARRAYU_TAG) | size;
-  
+
   va_start(args, size);
-  
+
   for (i=0; i<size; i++) {
     int ai = va_arg(args, int);
-    ((int*)r->contents)[i] = ai; 
+    ((int*)r->contents)[i] = ai;
   }
-  
+
   va_end(args);
 
   return r->contents;
@@ -200,14 +200,14 @@ extern void* L0makeSexp (int tag, int size, ...) {
   data *r = (data*) malloc (sizeof(int)*(size+1));
 
   r->tag = ((tag+3) << 24) | size;
-  
+
   va_start(args, size);
-  
+
   for (i=0; i<size; i++) {
     int ai = va_arg(args, int);
-    ((int*)r->contents)[i] = ai; 
+    ((int*)r->contents)[i] = ai;
   }
-  
+
   va_end(args);
 
   return r->contents;
@@ -230,7 +230,7 @@ extern void* Larrmake (int size, int val) {
   a->tag = ARRAYU_TAG | size;
 
   for (i=0; i<size; i++)
-    ((int*)a->contents)[i] = val; 
+    ((int*)a->contents)[i] = val;
 
   return a->contents;
 }
@@ -242,7 +242,7 @@ extern void* LArrmake (int size, void *val) {
   a->tag = ARRAYB_TAG | size;
 
   for (i=0; i<size; i++)
-    ((data**)a->contents)[i] = val; 
+    ((data**)a->contents)[i] = val;
 
   return a->contents;
 }
@@ -250,7 +250,7 @@ extern void* LArrmake (int size, void *val) {
 extern int Lread () {
   int result;
 
-  printf ("> "); 
+  printf ("> ");
   fflush (stdout);
   scanf  ("%d", &result);
 
@@ -283,11 +283,11 @@ extern void* Lfread (char *fname) {
   FILE * file;
   int n = Lstrlen ((void*)fname);
 
-  file = fopen (fname, "rb"); 
+  file = fopen (fname, "rb");
 
   fseek (file, 0, SEEK_END);
-  size = ftell (file); 
-  rewind (file); 
+  size = ftell (file);
+  rewind (file);
 
   result = (data*) malloc (size+sizeof(int)+1);
   result->tag = size;
@@ -307,7 +307,7 @@ extern void* Lfread (char *fname) {
 extern int Lread () {
   int result;
 
-  printf ("> "); 
+  printf ("> ");
   fflush (stdout);
   scanf  ("%d", &result);
 
@@ -321,4 +321,3 @@ extern int Lwrite (int n) {
 
   return 0;
 }
-

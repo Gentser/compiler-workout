@@ -344,9 +344,9 @@ module Stmt =
         )
 
         let vars p =
-          transform(t) (fun f -> object inherit [string list, _] @t[foldl] f method c_Ident s _ name = name::s end) [] p
+          (* transform(t) (fun f -> object inherit [string list, _] @t[foldl] f method c_Ident s _ name = name::s end) [] p *)
           (* definition above doesn't compile, use one from video *)
-          (* transform(t) (object inherit [string list] @t[foldl] method c_Ident s _ name = name::s end) [] p *)
+          transform(t) (object inherit [string list] @t[foldl] method c_Ident s _ name = name::s end) [] p
       end
 
     (* The type for statements *)
